@@ -432,6 +432,9 @@ class Extractor(Log):
 
         Args:
             keys (List[List[Tuple[bytes, bytes]]]): A list of handlers keys.
+
+        Raises:
+            Exception: When keys is a empty list.
         '''
         Log.__init__(self)
         if not keys:
@@ -445,6 +448,9 @@ class Extractor(Log):
 
         Args:
             keys (List[List[Tuple[bytes, bytes]]]): A list of handlers keys.
+
+        Raises:
+            Exception: When keys is a empty list.
         '''
         if not keys:
             raise Exception("Empty keys list was given!")
