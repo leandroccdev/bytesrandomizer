@@ -127,98 +127,6 @@ class BinKeyExtractor:
                 ListEndlessIterator(self._key_b).__next__()
 
 
-class BinKey(Log):
-
-    def __init__(self, iterations: int = 1, **kwargs) -> None:
-        '''Initialize the instance.
-
-        Args:
-            iterations (int): Shuffle times to randomizes internal key records.
-
-        Kwargs:
-            key_a (List[int]): Key record a.
-            key_b (List[int]): Key record b.
-
-        Raises:
-            Exception: When iterations argument isn't a positive integer.
-        '''
-        Log.__init__(self)
-        # Used to substitute data
-        self._key_a: List[int] = kwargs.get("key_a", list(range(256)))
-        # Used to apply xor to data
-        self._key_b: List[int] = kwargs.get("key_b", list(range(256)))
-        # Store the data in reverse order to reverse de randomization
-        self._dkey_a: Dict[int, int] = {}
-        self._dkey_b: Dict[int, int] = {}
-
-        if iterations <= 0:
-            raise Exception("'interations' must be a positive integer!")
-
-        if "key_a" not in kwargs:
-            self._log.debug("key_a record not given, creating my own!")
-            self.__randomize(self._key_a, iterations)
-        if "key_b" not in kwargs:
-            self._log.debug("key_b record not given, creating my own!")
-            self.__randomize(self._key_b, iterations)
-
-        self._log.debug("Creating dictionary keys for records key_a & key_b!")
-        self.__create_dkey(self._key_a, self._dkey_a)
-        self.__create_dkey(self._key_b, self._dkey_b)
-
-    def __randomize(self, l: list, n: int) -> None:
-        '''Creates a randomly ordered 256 list integers.
-
-        Args:
-            l (list): The sequence to be randomized.
-            n (int): Shuffling times.
-        '''
-        self._log.debug(f"Shuffling times: {n}")
-        for _ in range(n):
-            SystemRandom().shuffle(l)
-
-    def __create_dkey(self, l: List, d: Dict) -> None:
-        '''Fill a dictionary from list in reverse order {value: index}.'''
-        for i in range(len(l)):
-            d[l[i]] = i
-
-    @property
-    def key_a(self) -> bytes:
-        '''Primary key. Hexadecimal bytes sequence.'''
-        return bytes(self._key_a)
-
-    @property
-    def key_b(self) -> bytes:
-        '''Secondary key. Hexadecimal bytes sequence.'''
-        return bytes(self._key_b)
-
-    def apply(self, data: bytes) -> bytes:
-        '''Randomize each bytes of 'data' using the bytes of this key.
-
-        Args:
-            data (bytes): The bytes sequence to be randomize.
-
-        Returns: Randomized bytes sequence.
-        '''
-        return bytes(
-                self._key_a[b ^ next(EndlessIterator(self._key_b))]
-                for b in data
-            )
-
-    def reverse(self, data: bytes) -> bytes:
-        '''Restore the original bytes sequence from data.
-
-        Args:
-            data (bytes): The randomized byte sequence used to recover
-            the original one.
-
-        Returns: Original bytes sequence.
-        '''
-        return bytes(
-                self._dkey_a[b] ^ next(EndlessIterator(self._key_b))
-                for b in data
-            )
-
-
 class BinKeyExtractorFactory:
     '''Provides methods to create BinKeyExtractor instances.'''
 
@@ -236,6 +144,96 @@ class BinKeyExtractorFactory:
                 key_a=bytes.fromhex(key_a),
                 key_b=bytes.fromhex(key_b)
             )
+
+
+class BinKeyApplierHandler:
+    '''Randomizes a bytes sequence n times.'''
+
+    def __init__(self, iterations: int = 1) -> None:
+        '''Initialize the instance.
+
+        Args:
+            iterations (int): The number of iterations to apply distinct BinKeys.
+        '''
+        # Fix iterations
+        if iterations <= 0:
+            iterations = 1
+
+        self._keys: List[BinKeyApplier] = [BinKeyApplier()
+            for _ in range(iterations)]
+
+    @property
+    def keys(self) -> List[Tuple[bytes, bytes]]:
+        '''BinKeyAppliers internal keys records.'''
+        return [(k.key_a, k.key_b) for k in self._keys]
+
+    def apply(self, data: bytes) -> bytes:
+        '''Randomizes the bytes sequence `data` n times.
+
+        Args:
+            data (bytes): The bytes sequence to be randomized.
+
+        Returns: The randomized bytes sequence.
+        '''
+        for bka in self._keys:
+            data = bka.apply(data)
+        return data
+
+    def apply_in_place(self, data: bytearray) -> None:
+        '''In-place randomization of a bytearray `data` n times.
+
+        Args:
+            data (bytearray): the baytearray to be randomized.
+        '''
+        for bka in self._keys:
+            bka.apply_in_place(data)
+
+
+class BinKeyExtractorHandler:
+    '''Reccovers the original bytes sequence from a randomized one.'''
+
+    def __init__(self, keys: List[BinKeyExtractor]) -> None:
+        '''Initialize the instance.
+
+        Args:
+            keys (List[BinKeyExtractor]): A list of extractors to recover the
+            original bytes sequence from the randomized one.
+        '''
+        if not keys:
+            raise Exception("Empty 'keys' list was given!")
+
+        self._keys: List[BinKeyExtractor] = keys
+
+    def extract(self, data: bytes) -> bytes:
+        '''Recovers the original bytes sequence from a randomized one.
+
+        The application of n keys at `data` is automatically done by reversing
+        the applicated keys.
+
+        Args:
+            data (bytes): The randomized byte sequence used to recover the
+            original one.
+
+        Returns: The original bytes sequence.
+        '''
+        for bke in reversed(self._keys):
+            data = bke.extract(data)
+        return data
+
+    def extract_in_place(self, data: bytearray) -> None:
+        '''Recovers the original bytes sequence from a randomized one.
+
+        This version modifies the `data` bytearray in-place, avoiding the
+        creation of new bytearrays or byte sequences.
+        The application of n keys at `data` is automatically done by reversing
+        the applicated keys.
+
+        Args:
+            data (bytearray): The randomized bytearray used to recovers the
+            original sequence.
+        '''
+        for bke in reversed(self._keys):
+            bke.extract_in_place(data)
 
 
 class BinKeyHandler(Log):
