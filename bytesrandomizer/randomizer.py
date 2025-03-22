@@ -1,5 +1,5 @@
 from .exceptions import *
-from .util import EndlessIterator, format_bytes
+from .util import ListEndlessIterator, format_bytes
 from asyncio import create_task, gather, Task, to_thread
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
@@ -18,6 +18,113 @@ class Log:
         '''Initialize the instance.'''
         global logger
         self._log: logging.Logger = logger.getChild(self.__class__.__name__)
+
+
+class BinKeyApplier:
+    '''Applies randomization key into a bytes sequences.'''
+
+    def __init__(self, iterations: int = 1) -> None:
+        '''Initialize the instance.
+
+        key_a and key_b records are created automatically based on `iterations`.
+
+        Args:
+            iterations (int): Shuffle times to randomizes internal key records.
+        '''
+        # Creates key a record
+        l: List[int] = list(range(256))
+        for _ in range(iterations):
+            SystemRandom().shuffle(l)
+        self._key_a: Dict[int, int] = dict(enumerate(l))
+
+        # Creates key b record
+        self._key_b: List[int] = list(range(256))
+        for _ in range(iterations):
+            SystemRandom().shuffle(self._key_b)
+
+    @property
+    def key_a(self) -> bytes:
+        '''The primary key record.'''
+        return bytes(list(self._key_a.values()))
+
+    @property
+    def key_b(self) -> bytes:
+        '''The auxiliary key record.'''
+        return bytes(self._key_b)
+
+    def apply(self, data: bytes) -> bytes:
+        '''Randomizes the bytes sequence `data`.
+
+        Args:
+            data (bytes): the bytes sequence to be randomized.
+
+        Returns: The randomized bytes sequence.
+        '''
+        r_data: List[int] = []
+        for b in data:
+            r_data.append(
+                self._key_a[b ^ ListEndlessIterator(self._key_b).__next__()])
+        return bytes(r_data)
+
+    def apply_in_place(self, data: bytearray) -> None:
+        '''In-place randomization of the bytearray `data`.
+
+        Args:
+            data (bytearray): the bytearray to be randomized.
+
+        Returns: The randomized bytearray.
+        '''
+        for i in range(len(data)):
+            data[i] = self._key_a \
+                [data[i] ^ ListEndlessIterator(self._key_b).__next__()]
+
+
+class BinKeyExtractor:
+    '''Recovers the original bytes sequence from a randomized one.'''
+
+    def __init__(self, key_a: bytes, key_b: bytes) -> None:
+        '''Initialize the instance.
+
+        Args:
+            key_a (bytes): Key record a.
+            key_b (bytes): Key record b.
+        '''
+        # Creates the 'key a' record for extraction
+        self._key_a: Dict[int, int] = {}
+        for i in range(len(key_a)):
+            self._key_a[key_a[i]] = i
+
+        # Creates the 'key b' record for extraction
+        self._key_b = list(key_b)
+
+    def extract(self, data: bytes) -> bytes:
+        '''Recovers the original bytes sequence from a randomized one.
+
+        Args:
+            data (bytes): The randomized byte sequence used to recover the
+            original one.
+
+        Returns: The original bytes sequence.
+        '''
+        r_data: List[int] = []
+        for b in data:
+            r_data.append(
+                self._key_a[b] ^ ListEndlessIterator(self._key_b).__next__())
+        return bytes(r_data)
+
+    def extract_in_place(self, data: bytearray) -> None:
+        '''Recovers the original bytes sequence from a randomized one.
+
+        This version modifies the `data` bytearray in-place, avoiding the
+        creation of new bytearrays or byte sequences.
+
+        Args:
+            data (bytearray): The randomized bytearray used to recovers the
+            original sequence.
+        '''
+        for i in range(len(data)):
+            data[i] = self._key_a[data[i]] ^ \
+                ListEndlessIterator(self._key_b).__next__()
 
 
 class BinKey(Log):

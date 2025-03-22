@@ -14,7 +14,7 @@ def format_bytes(size: Union[int, float]) -> str:
         size /= 1024.0
     return f"{size:.1f} PB"
 
-class EndlessIterator:
+class ListEndlessIterator:
     '''Enable endless iteration over a list.
 
     Meaning that never raises StopIteration. When end of sequence is reached
