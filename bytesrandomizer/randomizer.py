@@ -219,11 +219,11 @@ class BinKey(Log):
             )
 
 
-class BinKeyFactory:
-    '''Provides methods to create BinKey instances.'''
+class BinKeyExtractorFactory:
+    '''Provides methods to create BinKeyExtractor instances.'''
 
     @staticmethod
-    def new_from_hex_keys(key_a: str, key_b: str) -> BinKey:
+    def new_from_hex_keys(key_a: str, key_b: str) -> BinKeyExtractor:
         '''Creates new instance of BinKey.
 
         Args:
@@ -232,24 +232,9 @@ class BinKeyFactory:
 
         Returns: BinKey object instance.
         '''
-        return BinKey(
-                key_a=list(bytes.fromhex(key_a)),
-                key_b=list(bytes.fromhex(key_b))
-            )
-
-    @staticmethod
-    def new_from_byte_keys(key_a: bytes, key_b: bytes) -> BinKey:
-        '''Creates new instance of BinKey.
-
-        Args:
-            key_a (bytes): A record as bytes.
-            key_b (bytes): B record as bytes.
-
-        Returns: BinKey object instance.
-        '''
-        return BinKey(
-                key_a=list(key_a),
-                key_b=list(key_b)
+        return BinKeyExtractor(
+                key_a=bytes.fromhex(key_a),
+                key_b=bytes.fromhex(key_b)
             )
 
 
