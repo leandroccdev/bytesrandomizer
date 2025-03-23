@@ -422,6 +422,10 @@ class Randomizer(Log):
             apply distinct BinKeys. When the iterations number is lower or
             equals to zero, then is fixed to one.
 
+        Raises:
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - ResetRequiredError: When the instance is expecting a reset.
+
         Returns: A randomized bytes sequence.
         '''
         self.__check_reset_needed()
@@ -447,6 +451,10 @@ class Randomizer(Log):
             equals to zero, then is fixed to one.
             - block_size (int): Amount of bytes to be randomized with
             same BinKey before generates new one.
+
+        Raises:
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - ResetRequiredError: When the instance is expecting a reset.
 
         Returns: A randomized bytes sequence.
         '''
@@ -480,6 +488,10 @@ class Randomizer(Log):
             equals to zero, then is fixed to one.
             - block_size (int): Amount of bytes to be randomized with
             same BinKey before generates new one.
+
+        Raises:
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - ResetRequiredError: When the instance is expecting a reset.
 
         Returns: A randomized bytes sequence.
         '''
