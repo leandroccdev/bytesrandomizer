@@ -1,8 +1,6 @@
 from .exceptions import *
 from .util import ListEndlessIterator, format_bytes
-from asyncio import create_task, gather, Task, to_thread
-from concurrent.futures import Future, ThreadPoolExecutor
-from functools import partial
+from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor
 from io import BytesIO
 from secrets import SystemRandom
 from typing import Dict, Iterator, List, Optional, NoReturn, Tuple
@@ -319,31 +317,20 @@ class Randomizer(Log):
         - WORKERS (int): Number of worker for the ThreadPoolExecutor
     '''
     MAX_SIZE = 104857600 # 100 MB (in bytes).
-    WORKERS = 10
+    WORKERS = 5
+    CORES = cpu_count()
 
-    def __init__(self, block_size: Optional[int] = None, **kwargs) -> None:
+    def __init__(self) -> None:
         '''Initializes the instance.
-
-        Args:
-            block_size (Optional[int]): Amount of bytes to be randomized with
-            same BinKey before generates new one.
-            Ignored when: The value is None or is below 1.
 
         Raises:
             ExceedsMaximumSizeError: When data bytes sequence size is greater
             than Randomizer.MAX_SIZE. (The limit can be adjusted).
         '''
         Log.__init__(self)
-        self._handlers: List[BinKeyHandler] = []
+        self._handlers: List[BinKeyApplierHandler] = []
         # Flag: indicates when this instance requires a reset
         self.__is_reset_needed: bool = False
-
-        # Ignores block_size
-        if block_size is not None and block_size <= 0:
-            self._log.debug(f"block_size is {block_size} not used!")
-            block_size = None
-
-        self._block_size: Optional[int] = block_size
 
     def __check_reset_needed(self) -> None:
         '''Check if this instance requires a reset.
@@ -355,15 +342,15 @@ class Randomizer(Log):
         if self.__is_reset_needed:
             raise ResetRequiredError("Reset is required!")
 
-    def __new_handler(self, iterations: int = 1) -> BinKeyHandler:
+    def __new_handler(self, iterations: int = 1) -> BinKeyApplierHandler:
         '''Adds new handler to internal list.
 
         Args:
             iterations (int): The number of iterations to apply distinct BinKeys.
         '''
-        bkh: BinKeyHandler = BinKeyHandler(iterations)
-        self._handlers.append(bkh)
-        return bkh
+        bkah: BinKeyApplierHandler = BinKeyApplierHandler(iterations)
+        self._handlers.append(bkah)
+        return bkah
 
     def __validate_max_data_size(self, data: bytes) -> Optional[NoReturn]:
         '''Validates the maximum data size allowed by Randomizer.MAX_SIZE.
@@ -381,13 +368,45 @@ class Randomizer(Log):
             self._log.error(err)
             raise ExceedsMemoryError(err)
 
-    @property
-    def block_size(self) -> Optional[int]:
-        '''Amount of bytes to be randomized with the same BinKey.
+    def __apply_executor(self, data: bytes, block_size: int, iterations,
+        executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
+        '''Randomizes a bytes sequence using a executor pool.
 
-        Returns: None when is not used and a positive integer if does.
+        Args:
+            - data (bytes): The sequence of bytes to be randomized.
+            - iterations (int): A positive integer. The number of iterations to
+            apply distinct BinKeys. When the iterations number is lower or
+            equals to zero, then is fixed to one.
+            - block_size (int): Amount of bytes to be randomized with
+            same BinKey before generates new one.
+            - executor (Union[ThreadPoolExecutor, ProcessPoolExecutor]): The
+            executor to use in the process.
+
+        Returns: A randomized bytes sequence.
         '''
-        return self._block_size
+        # Process in blocks of block_size
+        tasks: List[Future] = []
+        f_block_size: str = format_bytes(block_size)
+        self._log.debug(f"Randomizing in blocks of {f_block_size}...")
+        # The use of a for (instead BytesIO) is give us more stable execution
+        # times
+        with executor:
+            last: int = 0
+            for i in range(block_size, len(data), block_size):
+                block: bytes = data[last:i]
+                bkah: BinKeyApplierHandler = self.__new_handler(iterations)
+                tasks.append(executor.submit(bkah.apply, block))
+                last = i
+
+            # Process last block
+            if last < len(data) -1:
+                block: bytes = data[last:]
+                bkah: BinKeyApplierHandler = self.__new_handler(iterations)
+                tasks.append(executor.submit(bkah.apply, block))
+
+        # Collect results
+        self._log.debug("Waiting for tasks completion...")
+        return b"".join([t.result() for t in tasks])
 
     @property
     def keys(self) -> List[List[Tuple[bytes, bytes]]]:
@@ -395,6 +414,28 @@ class Randomizer(Log):
         return [h.keys for h in self._handlers]
 
     def apply(self, data: bytes, iterations=1) -> bytes:
+        '''Randomizes a byte sequence synchronously as one block.
+
+        Args:
+            - data (bytes): The sequence of bytes to be randomized.
+            - iterations (int): A positive integer. The number of iterations to
+            apply distinct BinKeys. When the iterations number is lower or
+            equals to zero, then is fixed to one.
+
+        Returns: A randomized bytes sequence.
+        '''
+        self.__check_reset_needed()
+        self.__validate_max_data_size(data)
+        self.__is_reset_needed = True
+
+        # Fix iterations to one
+        if iterations <= 0:
+            iterations = 1
+
+        # Process in a single block
+        return self.__new_handler(iterations).apply(data)
+
+    def apply_tp(self, data: bytes, block_size: int, iterations=1) -> bytes:
         '''Randomizes a bytes sequence using a ThreadPool.
 
         The number of  ThreadPool workers is defined by `Randomizer.WORKERS`.
@@ -404,6 +445,8 @@ class Randomizer(Log):
             - iterations (int): A positive integer. The number of iterations to
             apply distinct BinKeys. When the iterations number is lower or
             equals to zero, then is fixed to one.
+            - block_size (int): Amount of bytes to be randomized with
+            same BinKey before generates new one.
 
         Returns: A randomized bytes sequence.
         '''
@@ -414,50 +457,29 @@ class Randomizer(Log):
         # Fix iterations to one
         if iterations <= 0:
             iterations = 1
-            self._log.debug("'iterations' fixed to 1")
 
-        randomized: bytes = b""
+        # Checks block_size
+        if block_size <= 0:
+            raise Exception("'block_size' must be a positive integer!")
 
-        # Process in blocks
-        if self._block_size:
-            executor: ThreadPoolExecutor = ThreadPoolExecutor(
-                max_workers=Randomizer.WORKERS)
-            tasks: List[Future] = []
-            block_size: str = format_bytes(self._block_size)
+        # Process in blocks of block_size
+        return self.__apply_executor(data, block_size, iterations,
+            ThreadPoolExecutor(max_workers=Randomizer.WORKERS))
 
-            self._log.debug(
-                f"Randomizing in blocks of {block_size}...")
-            with BytesIO(data) as buffer, executor:
-                while block := buffer.read(self._block_size):
-                   bkh: BinKeyHandler = self.__new_handler(iterations)
-                   tasks.append(executor.submit(bkh.apply, block))
-                   self._log.debug("Task added...")
+    def apply_pp(self, data: bytes, block_size: int, iterations=1) -> bytes:
+        '''Randomizes a bytes sequence using a ProcessPool.
 
-            # Collect results
-            self._log.debug("Waiting for tasks completion...")
-            randomized = b"".join([t.result() for t in tasks])
-
-        # Process in a single block
-        else:
-            self._log.debug("Randomizing the entire sequence at once...")
-            # Uses a single BinKey to randomize entire data sequence
-            bkh: BinKeyHandler = self.__new_handler(iterations)
-            randomized = bkh.apply(data)
-
-        # Collect results
-        return randomized
-
-    async def apply_async(self, data: bytes, iterations=1) -> bytes:
-        '''Randomizes a bytes sequence using in asynchronous mode.
-
-        It must be called from a external event loop.
-        Exmaple: `Asyncio.run(randomizer.apply_async(data))`
+        This is usually faster than `apply` and `apply_tp` alternatives.
+        The number of workers is defined by `Randomizer.CORES` (taken from
+        multiprocessing.cpu_count()).
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
             - iterations (int): A positive integer. The number of iterations to
             apply distinct BinKeys. When the iterations number is lower or
             equals to zero, then is fixed to one.
+            - block_size (int): Amount of bytes to be randomized with
+            same BinKey before generates new one.
 
         Returns: A randomized bytes sequence.
         '''
@@ -468,36 +490,14 @@ class Randomizer(Log):
         # Fix iterations to one
         if iterations <= 0:
             iterations = 1
-            self._log.debug("'iterations' fixed to 1")
 
-        randomized: bytes = b""
+        # Checks block_size
+        if block_size <= 0:
+            raise Exception("'block_size' must be a positive integer!")
 
-        # Process in blocks
-        if self._block_size:
-            tasks: List[Task] = []
-            block_size: str = format_bytes(self._block_size)
-            self._log.debug(
-                f"Randomizing in blocks of {block_size}...")
-            with BytesIO(data) as buffer:
-                while block := buffer.read(self._block_size):
-                    bkh: BinKeyHandler = self.__new_handler(iterations)
-                    pt: partial = partial(bkh.apply, block)
-                    tasks.append(create_task(to_thread(pt)))
-                    self._log.debug("Task added...")
-
-            # Collects and join blocks
-            self._log.debug("Collecting and joining blocks...")
-            randomized = b"".join(b for b in await gather(*tasks))
-
-        # Process in a single block
-        else:
-            self._log.debug("Randomizing the entire sequence at once...")
-            # Uses a single BinKey to randomize entire data sequence
-            bkh: BinKeyHandler = self.__new_handler(iterations)
-            pt: partial = partial(bkh.apply, data)
-            randomized = await create_task(to_thread(pt))
-
-        return randomized
+        # Process in blocks of block_size
+        return self.__apply_executor(data, block_size, iterations,
+            ProcessPoolExecutor(max_workers=Randomizer.CORES))
 
     def reset(self) -> None:
         '''Reinitialize the instance.'''
