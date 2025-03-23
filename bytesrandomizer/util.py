@@ -1,4 +1,5 @@
-from typing import Any, Iterator, List, Union
+from typing import Any, Callable, Iterator, List, Tuple, Union
+from time import perf_counter
 
 def format_bytes(size: Union[int, float]) -> str:
     '''Show an amount bytes in human form.
@@ -13,6 +14,37 @@ def format_bytes(size: Union[int, float]) -> str:
             return f"{size:.1f} {u}"
         size /= 1024.0
     return f"{size:.1f} PB"
+
+def get_execution_time(func) -> Callable:
+    '''Determines and retrieves the execution time of a function.
+
+    Returns: Callable wrapper function.
+    '''
+    def wrapper(*args, **kwargs) -> Tuple[Any, float]:
+        start = perf_counter()
+        result: Any = func(*args, **kwargs)
+        end = perf_counter()
+
+        return result, end - start
+
+    return wrapper
+
+def print_execution_time(func) -> Callable:
+    '''Determines the execution time of a function.
+
+    The execution time is printed at stdout.
+
+    Returns: Callable wrapper function.
+    '''
+    def wrapper(*args, **kwargs) -> Any:
+        start = perf_counter()
+        result: Any = func(*args, **kwargs)
+        end = perf_counter()
+        print(f"Execution time: {end - start:5f}s")
+
+        return result
+
+    return wrapper
 
 class ListEndlessIterator:
     '''Enable endless iteration over a list.
