@@ -368,7 +368,7 @@ class Randomizer(Log):
             self._log.error(err)
             raise ExceedsMemoryError(err)
 
-    def __apply_executor(self, data: bytes, block_size: int, iterations,
+    def __apply_with_executor(self, data: bytes, block_size: int, iterations,
         executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
         '''Randomizes a bytes sequence using a executor pool.
 
@@ -471,7 +471,7 @@ class Randomizer(Log):
             raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
-        return self.__apply_executor(data, block_size, iterations,
+        return self.__apply_with_executor(data, block_size, iterations,
             ThreadPoolExecutor(max_workers=Randomizer.WORKERS))
 
     def apply_pp(self, data: bytes, block_size: int, iterations=1) -> bytes:
@@ -508,7 +508,7 @@ class Randomizer(Log):
             raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
-        return self.__apply_executor(data, block_size, iterations,
+        return self.__apply_with_executor(data, block_size, iterations,
             ProcessPoolExecutor(max_workers=Randomizer.CORES))
 
     def reset(self) -> None:
