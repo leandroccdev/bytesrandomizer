@@ -340,13 +340,9 @@ class Randomizer(Log):
         if self.__is_reset_needed:
             raise ResetRequiredError("Reset is required!")
 
-    def __new_handler(self, iterations: int = 1) -> BinKeyApplierHandler:
-        '''Adds new handler to internal list.
-
-        Args:
-            iterations (int): The number of iterations to apply distinct BinKeys.
-        '''
-        bkah: BinKeyApplierHandler = BinKeyApplierHandler(iterations)
+    def __new_handler(self) -> BinKeyApplierHandler:
+        '''Adds new handler to internal list.'''
+        bkah: BinKeyApplierHandler = BinKeyApplierHandler()
         self._handlers.append(bkah)
         return bkah
 
@@ -366,15 +362,12 @@ class Randomizer(Log):
             self._log.error(err)
             raise ExceedsMemoryError(err)
 
-    def __apply_with_executor(self, data: bytes, block_size: int, iterations,
+    def __apply_with_executor(self, data: bytes, block_size: int,
         executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
         '''Randomizes a bytes sequence using a executor pool.
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
-            - iterations (int): A positive integer. The number of iterations to
-            apply distinct BinKeys. When the iterations number is lower or
-            equals to zero, then is fixed to one.
             - block_size (int): Amount of bytes to be randomized with
             same BinKey before generates new one.
             - executor (Union[ThreadPoolExecutor, ProcessPoolExecutor]): The
@@ -392,14 +385,14 @@ class Randomizer(Log):
             last: int = 0
             for i in range(block_size, len(data), block_size):
                 block: bytes = data[last:i]
-                bkah: BinKeyApplierHandler = self.__new_handler(iterations)
+                bkah: BinKeyApplierHandler = self.__new_handler()
                 tasks.append(executor.submit(bkah.apply, block))
                 last = i
 
             # Process last block
             if last < len(data) -1:
                 block: bytes = data[last:]
-                bkah: BinKeyApplierHandler = self.__new_handler(iterations)
+                bkah: BinKeyApplierHandler = self.__new_handler()
                 tasks.append(executor.submit(bkah.apply, block))
 
         # Collect results
@@ -411,14 +404,11 @@ class Randomizer(Log):
         '''List of handlers keys.'''
         return [h.keys for h in self._handlers]
 
-    def apply(self, data: bytes, iterations=1) -> bytes:
+    def apply(self, data: bytes) -> bytes:
         '''Randomizes a byte sequence synchronously as one block.
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
-            - iterations (int): A positive integer. The number of iterations to
-            apply distinct BinKeys. When the iterations number is lower or
-            equals to zero, then is fixed to one.
 
         Raises:
             - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
@@ -430,23 +420,16 @@ class Randomizer(Log):
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
 
-        # Fix iterations to one
-        if iterations <= 0:
-            iterations = 1
-
         # Process in a single block
-        return self.__new_handler(iterations).apply(data)
+        return self.__new_handler().apply(data)
 
-    def apply_tp(self, data: bytes, block_size: int, iterations=1) -> bytes:
+    def apply_tp(self, data: bytes, block_size: int) -> bytes:
         '''Randomizes a bytes sequence using a ThreadPool.
 
         The number of  ThreadPool workers is defined by `Randomizer.WORKERS`.
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
-            - iterations (int): A positive integer. The number of iterations to
-            apply distinct BinKeys. When the iterations number is lower or
-            equals to zero, then is fixed to one.
             - block_size (int): Amount of bytes to be randomized with
             same BinKey before generates new one.
 
@@ -460,19 +443,15 @@ class Randomizer(Log):
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
 
-        # Fix iterations to one
-        if iterations <= 0:
-            iterations = 1
-
         # Checks block_size
         if block_size <= 0:
             raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
-        return self.__apply_with_executor(data, block_size, iterations,
+        return self.__apply_with_executor(data, block_size,
             ThreadPoolExecutor(max_workers=Randomizer.WORKERS))
 
-    def apply_pp(self, data: bytes, block_size: int, iterations=1) -> bytes:
+    def apply_pp(self, data: bytes, block_size: int) -> bytes:
         '''Randomizes a bytes sequence using a ProcessPool.
 
         This is usually faster than `apply` and `apply_tp` alternatives.
@@ -481,9 +460,6 @@ class Randomizer(Log):
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
-            - iterations (int): A positive integer. The number of iterations to
-            apply distinct BinKeys. When the iterations number is lower or
-            equals to zero, then is fixed to one.
             - block_size (int): Amount of bytes to be randomized with
             same BinKey before generates new one.
 
@@ -497,16 +473,12 @@ class Randomizer(Log):
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
 
-        # Fix iterations to one
-        if iterations <= 0:
-            iterations = 1
-
         # Checks block_size
         if block_size <= 0:
             raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
-        return self.__apply_with_executor(data, block_size, iterations,
+        return self.__apply_with_executor(data, block_size,
             ProcessPoolExecutor(max_workers=Randomizer.CORES))
 
     def reset(self) -> None:
