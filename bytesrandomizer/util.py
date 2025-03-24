@@ -1,5 +1,24 @@
+from collections import Counter
+from math import log2
 from typing import Any, Callable, Iterator, List, Tuple, Union
 from time import perf_counter
+
+
+def calculate_entropy(data: bytes) -> float:
+    '''Calculate the entropy of byte sequence using the Shannon formula.
+
+    This calculates a number between 0 (no entropy) and 8 (maximum entropy).
+
+    Args:
+        data (bytes): The byte sequence for analysis.
+
+    Returns: The entropy as float value.
+    '''
+    freq: Counter = Counter(data)
+    length: int = len(data)
+    probabilities: list = [c / length for c in freq.values()]
+    # Shannon formula
+    return -sum(p * log2(p) for p in probabilities if p > 0)
 
 def format_bytes(size: Union[int, float]) -> str:
     '''Show an amount bytes in human form.
