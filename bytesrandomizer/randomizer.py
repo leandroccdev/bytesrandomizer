@@ -1,7 +1,6 @@
 from .exceptions import *
 from .util import ListEndlessIterator, format_bytes
 from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor
-from io import BytesIO
 from multiprocessing import cpu_count
 from secrets import SystemRandom
 from typing import Dict, Iterator, List, Optional, NoReturn, Tuple, Union
