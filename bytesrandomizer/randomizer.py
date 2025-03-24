@@ -2,8 +2,9 @@ from .exceptions import *
 from .util import ListEndlessIterator, format_bytes
 from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor
 from io import BytesIO
+from multiprocessing import cpu_count
 from secrets import SystemRandom
-from typing import Dict, Iterator, List, Optional, NoReturn, Tuple
+from typing import Dict, Iterator, List, Optional, NoReturn, Tuple, Union
 import logging
 
 # Setup logger
@@ -312,13 +313,14 @@ class Randomizer(Log):
     '''Randomizes a sequence of bytes using BinKeys.
 
     Attributes:
+        - CORES (int): The number of logical cores in the CPU.
         - MAX_SIZE (int): The maximum size of the bytes sequence randomizer
         handles.
         - WORKERS (int): Number of worker for the ThreadPoolExecutor
     '''
+    CORES = cpu_count()
     MAX_SIZE = 104857600 # 100 MB (in bytes).
     WORKERS = 5
-    CORES = cpu_count()
 
     def __init__(self) -> None:
         '''Initializes the instance.
@@ -522,12 +524,14 @@ class Extractor(Log):
     '''Extracts the original bytes sequence from the randomized one.
 
     Attributes:
+        - CORES (int): The number of logical cores in the CPU.
         - ONE_BLOCK: Used for 'block_size' argument when you want to process
         the complete bytes sequence in one single block of data.
         - WORKERS (int): Number of worker for the ThreadPoolExecutor.
     '''
+    CORES = cpu_count()
     ONE_BLOCK = -1
-    WORKERS = 10
+    WORKERS = 5
 
     def __init__(self, keys: List[List[Tuple[bytes, bytes]]]) -> None:
         '''Initializes the instance.
@@ -542,8 +546,45 @@ class Extractor(Log):
         if not keys:
             raise Exception("Empty keys list was given!")
 
-        self._handlers: List[BinKeyHandler] = []
+        self._handlers: List[BinKeyExtractorHandler] = []
         self._set_handler_keys(keys)
+
+    def __extract_with_executor(self, data: bytes, block_size: int,
+        executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
+        '''Extracts the original sequence from randomized one using a executor.
+
+        Args:
+            - block_size (int): The block size used in the applied randomization.
+            - data (bytes): The randomized byte sequence used to recover
+            the original one.
+            - executor (Union[ThreadPoolExecutor, ProcessPoolExecutor]): The
+            executor to use in the process.
+
+        Returns: The original bytes sequence.
+        '''
+        tasks: List[Future] = []
+        s_block_size: str = format_bytes(block_size)
+        self._log.debug(
+            f"Extracting original sequence in blocks of {s_block_size}...")
+
+        bkeh_iterator: Iterator = iter(self._handlers)
+        with executor:
+            last: int = 0
+            for i in range(block_size, len(data), block_size):
+                block: bytes = data[last:i]
+                bkeh: BinKeyExtractorHandler = next(bkeh_iterator)
+                tasks.append(executor.submit(bkeh.extract, block))
+                last = i
+
+            # Process last block
+            if last < len(data) - 1:
+                block: bytes = data[last:]
+                bkeh: BinKeyExtractorHandler = next(bkeh_iterator)
+                tasks.append(executor.submit(bkeh.extract, block))
+
+        # Collect results
+        self._log.debug("Waiting for tasks completion...")
+        return b"".join([t.result() for t in tasks])
 
     def _set_handler_keys(self, keys: List[List[Tuple[bytes, bytes]]]) -> None:
         '''Creates a new list of handlers from `keys`.
@@ -558,10 +599,26 @@ class Extractor(Log):
             raise Exception("Empty keys list was given!")
 
         for k in keys:
-            self._handlers.append(BinKeyHandler(keys=k))
+            extractors: List[BinKeyExtractor] = []
+            for a, b in k:
+                extractors.append(BinKeyExtractor(a, b))
+            self._handlers.append(BinKeyExtractorHandler(extractors))
 
-    def reverse(self, block_size: int, data: bytes) -> bytes:
-        '''Extracts the original sequence from randomized byte sequence.
+    def extract(self, data: bytes) -> bytes:
+        '''Extracts the original sequence from randomized one.
+
+        The processing of `data` is done as single block in synchronous mode.
+
+        Args:
+            data (bytes): The randomized byte sequence used to recover
+            the original one.
+
+        Returns: The original bytes sequence.
+        '''
+        return self._handlers[0].extract(data)
+
+    def extract_tp(self, data: bytes, block_size: int) -> bytes:
+        '''Extracts the original sequence from randomized one.
 
         The number of  ThreadPool workers is defined by `Extractor.WORKERS`.
 
@@ -572,42 +629,19 @@ class Extractor(Log):
 
         Returns: The original bytes sequence.
         '''
-        original_sequence: bytes = b""
+        # Checks block_size
+        if block_size <= 0:
+            raise Exception("'block_size' must be a positive integer!")
 
-        # Process in blocks
-        if block_size > 0:
-            executor: ThreadPoolExecutor = ThreadPoolExecutor(
-                max_workers=Randomizer.WORKERS)
-            tasks: List[Future] = []
-            s_block_size: str = format_bytes(block_size)
+        return self.__extract_with_executor(data, block_size,
+            ThreadPoolExecutor(max_workers=Randomizer.WORKERS))
 
-            self._log.debug(
-                f"Extracting original sequence in blocks of {s_block_size}...")
+    def extract_pp(self, data: bytes, block_size: int) -> bytes:
+        '''Extracts the original sequence from randomized one.
 
-            bkh_iterator: Iterator = iter(self._handlers)
-            with BytesIO(data) as buffer, executor:
-                while block := buffer.read(block_size):
-                    bkh: BinKeyHandler = next(bkh_iterator)
-                    tasks.append(executor.submit(bkh.reverse, block))
-                    self._log.debug("Task added...")
-
-            # Collect results
-            self._log.debug("Waiting for tasks completion...")
-            original_sequence = b"".join([t.result() for t in tasks])
-
-        # Process in a single block
-        else:
-            self._log.debug("Extracting the entire sequence at once...")
-            # Uses a single BinKey to extract the original data sequence
-            original_sequence = self._handlers[0].reverse(data)
-
-        return original_sequence
-
-    async def reverse_async(self, block_size: int, data: bytes) -> bytes:
-        '''Extracts the original sequence from randomized byte sequence.
-
-        It must be called from a external event loop.
-        Exmaple: `Asyncio.run(extractor.reverse_async(block_size, data))`
+        This is usually faster than `extract` and `extract_tp` alternatives.
+        The number of workers is defined by `Extractor.CORES` (taken from
+        multiprocessing.cpu_count()).
 
         Args:
             - block_size (int): The block size used in the applied randomization.
@@ -616,33 +650,14 @@ class Extractor(Log):
 
         Returns: The original bytes sequence.
         '''
-        original_sequence: bytes = b""
+        # Checks block_size
+        if block_size <= 0:
+            raise Exception("'block_size' must be a positive integer!")
 
-        # Process in blocks
-        if block_size > 0:
-            tasks: List[Task] = []
-            s_block_size: str = format_bytes(block_size)
-            self._log.debug(
-                f"Extracting original sequence in blocks of {s_block_size}...")
-            bkh_iterator: Iterator = iter(self._handlers)
-            with BytesIO(data) as buffer:
-                while block := buffer.read(block_size):
-                    bkh: BinKeyHandler = next(bkh_iterator)
-                    pt: partial = partial(bkh.reverse, block)
-                    tasks.append(create_task(to_thread(pt)))
-                    self._log.debug("Task added...")
-
-            # Collects and join blocks
-            self._log.debug("Collecting and joining blocks...")
-            original_sequence = b"".join(b for b in await gather(*tasks))
-
-        # Process in a single block
-        else:
-            self._log.debug("Extracting the entire sequence at once...")
-            # Uses a single BinKey to extract the original data sequence
-            original_sequence = self._handlers[0].reverse(data)
-
-        return original_sequence
+        return self.__extract_with_executor(data, block_size,
+            ProcessPoolExecutor(max_workers=Randomizer.WORKERS))
 
     keys = property(fset=_set_handler_keys)
     keys.__doc__ = "Sets the handlers keys."
+
+
