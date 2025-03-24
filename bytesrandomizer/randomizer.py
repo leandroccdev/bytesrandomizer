@@ -141,49 +141,6 @@ class BinKeyExtractorFactory:
             )
 
 
-class BinKeyApplierHandler:
-    '''Randomizes a bytes sequence n times.'''
-
-    def __init__(self, iterations: int = 1) -> None:
-        '''Initialize the instance.
-
-        Args:
-            iterations (int): The number of iterations to apply distinct BinKeys.
-        '''
-        # Fix iterations
-        if iterations <= 0:
-            iterations = 1
-
-        self._keys: List[BinKeyApplier] = [BinKeyApplier()
-            for _ in range(iterations)]
-
-    @property
-    def keys(self) -> List[Tuple[bytes, bytes]]:
-        '''BinKeyAppliers internal keys records.'''
-        return [(k.key_a, k.key_b) for k in self._keys]
-
-    def apply(self, data: bytes) -> bytes:
-        '''Randomizes the bytes sequence `data` n times.
-
-        Args:
-            data (bytes): The bytes sequence to be randomized.
-
-        Returns: The randomized bytes sequence.
-        '''
-        for bka in self._keys:
-            data = bka.apply(data)
-        return data
-
-    def apply_in_place(self, data: bytearray) -> None:
-        '''In-place randomization of a bytearray `data` n times.
-
-        Args:
-            data (bytearray): the baytearray to be randomized.
-        '''
-        for bka in self._keys:
-            bka.apply_in_place(data)
-
-
 class BinKeyExtractorHandler:
     '''Reccovers the original bytes sequence from a randomized one.'''
 
@@ -326,7 +283,7 @@ class Randomizer(Log):
             than Randomizer.MAX_SIZE. (The limit can be adjusted).
         '''
         Log.__init__(self)
-        self._handlers: List[BinKeyApplierHandler] = []
+        self._handlers: List[BinKeyApplier] = []
         # Flag: indicates when this instance requires a reset
         self.__is_reset_needed: bool = False
 
@@ -340,9 +297,9 @@ class Randomizer(Log):
         if self.__is_reset_needed:
             raise ResetRequiredError("Reset is required!")
 
-    def __new_handler(self) -> BinKeyApplierHandler:
+    def __new_handler(self) -> BinKeyApplier:
         '''Adds new handler to internal list.'''
-        bkah: BinKeyApplierHandler = BinKeyApplierHandler()
+        bkah: BinKeyApplier = BinKeyApplier()
         self._handlers.append(bkah)
         return bkah
 
@@ -385,24 +342,24 @@ class Randomizer(Log):
             last: int = 0
             for i in range(block_size, len(data), block_size):
                 block: bytes = data[last:i]
-                bkah: BinKeyApplierHandler = self.__new_handler()
-                tasks.append(executor.submit(bkah.apply, block))
+                bka: BinKeyApplier = self.__new_handler()
+                tasks.append(executor.submit(bka.apply, block))
                 last = i
 
             # Process last block
-            if last < len(data) -1:
+            if last < len(data):
                 block: bytes = data[last:]
-                bkah: BinKeyApplierHandler = self.__new_handler()
-                tasks.append(executor.submit(bkah.apply, block))
+                bka: BinKeyApplier = self.__new_handler()
+                tasks.append(executor.submit(bka.apply, block))
 
         # Collect results
         self._log.debug("Waiting for tasks completion...")
         return b"".join([t.result() for t in tasks])
 
     @property
-    def keys(self) -> List[List[Tuple[bytes, bytes]]]:
+    def keys(self) -> List[Tuple[bytes, bytes]]:
         '''List of handlers keys.'''
-        return [h.keys for h in self._handlers]
+        return [(h.key_a, h.key_b) for h in self._handlers]
 
     def apply(self, data: bytes) -> bytes:
         '''Randomizes a byte sequence synchronously as one block.
