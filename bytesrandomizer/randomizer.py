@@ -141,53 +141,6 @@ class BinKeyExtractorFactory:
             )
 
 
-class BinKeyExtractorHandler:
-    '''Reccovers the original bytes sequence from a randomized one.'''
-
-    def __init__(self, keys: List[BinKeyExtractor]) -> None:
-        '''Initialize the instance.
-
-        Args:
-            keys (List[BinKeyExtractor]): A list of extractors to recover the
-            original bytes sequence from the randomized one.
-        '''
-        if not keys:
-            raise Exception("Empty 'keys' list was given!")
-
-        self._keys: List[BinKeyExtractor] = keys
-
-    def extract(self, data: bytes) -> bytes:
-        '''Recovers the original bytes sequence from a randomized one.
-
-        The application of n keys at `data` is automatically done by reversing
-        the applicated keys.
-
-        Args:
-            data (bytes): The randomized byte sequence used to recover the
-            original one.
-
-        Returns: The original bytes sequence.
-        '''
-        for bke in reversed(self._keys):
-            data = bke.extract(data)
-        return data
-
-    def extract_in_place(self, data: bytearray) -> None:
-        '''Recovers the original bytes sequence from a randomized one.
-
-        This version modifies the `data` bytearray in-place, avoiding the
-        creation of new bytearrays or byte sequences.
-        The application of n keys at `data` is automatically done by reversing
-        the applicated keys.
-
-        Args:
-            data (bytearray): The randomized bytearray used to recovers the
-            original sequence.
-        '''
-        for bke in reversed(self._keys):
-            bke.extract_in_place(data)
-
-
 class BinKeyHandler(Log):
     '''Randomizes a byte sequence n times.
 
@@ -458,11 +411,11 @@ class Extractor(Log):
     ONE_BLOCK = -1
     WORKERS = 5
 
-    def __init__(self, keys: List[List[Tuple[bytes, bytes]]]) -> None:
+    def __init__(self, keys: List[Tuple[bytes, bytes]]) -> None:
         '''Initializes the instance.
 
         Args:
-            keys (List[List[Tuple[bytes, bytes]]]): A list of handlers keys.
+            keys (List[Tuple[bytes, bytes]]): A list of handlers keys.
 
         Raises:
             Exception: When keys is a empty list.
@@ -471,7 +424,7 @@ class Extractor(Log):
         if not keys:
             raise Exception("Empty keys list was given!")
 
-        self._handlers: List[BinKeyExtractorHandler] = []
+        self._handlers: List[BinKeyExtractor] = []
         self._set_handler_keys(keys)
 
     def __extract_with_executor(self, data: bytes, block_size: int,
@@ -492,30 +445,30 @@ class Extractor(Log):
         self._log.debug(
             f"Extracting original sequence in blocks of {s_block_size}...")
 
-        bkeh_iterator: Iterator = iter(self._handlers)
+        bke_iterator: Iterator = iter(self._handlers)
         with executor:
             last: int = 0
             for i in range(block_size, len(data), block_size):
                 block: bytes = data[last:i]
-                bkeh: BinKeyExtractorHandler = next(bkeh_iterator)
-                tasks.append(executor.submit(bkeh.extract, block))
+                bke: BinKeyExtractor = next(bke_iterator)
+                tasks.append(executor.submit(bke.extract, block))
                 last = i
 
             # Process last block
-            if last < len(data) - 1:
+            if last < len(data):
                 block: bytes = data[last:]
-                bkeh: BinKeyExtractorHandler = next(bkeh_iterator)
-                tasks.append(executor.submit(bkeh.extract, block))
+                bke: BinKeyExtractor = next(bke_iterator)
+                tasks.append(executor.submit(bke.extract, block))
 
         # Collect results
         self._log.debug("Waiting for tasks completion...")
         return b"".join([t.result() for t in tasks])
 
-    def _set_handler_keys(self, keys: List[List[Tuple[bytes, bytes]]]) -> None:
+    def _set_handler_keys(self, keys: List[Tuple[bytes, bytes]]) -> None:
         '''Creates a new list of handlers from `keys`.
 
         Args:
-            keys (List[List[Tuple[bytes, bytes]]]): A list of handlers keys.
+            keys (List[Tuple[bytes, bytes]]): A list of handlers keys.
 
         Raises:
             Exception: When keys is a empty list.
@@ -523,11 +476,8 @@ class Extractor(Log):
         if not keys:
             raise Exception("Empty keys list was given!")
 
-        for k in keys:
-            extractors: List[BinKeyExtractor] = []
-            for a, b in k:
-                extractors.append(BinKeyExtractor(a, b))
-            self._handlers.append(BinKeyExtractorHandler(extractors))
+        for a, b in keys:
+            self._handlers.append(BinKeyExtractor(a, b))
 
     def extract(self, data: bytes) -> bytes:
         '''Extracts the original sequence from randomized one.
