@@ -21,24 +21,21 @@ class Log:
 class BinKeyApplier:
     '''Applies randomization key into a bytes sequences.'''
 
-    def __init__(self, iterations: int = 1) -> None:
+    def __init__(self) -> None:
         '''Initialize the instance.
 
-        key_a and key_b records are created automatically based on `iterations`.
+        key_a and key_b records are created automatically. Each records is
+        shuffled once.
 
-        Args:
-            iterations (int): Shuffle times to randomizes internal key records.
         '''
         # Creates key a record
         l: List[int] = list(range(256))
-        for _ in range(iterations):
-            SystemRandom().shuffle(l)
+        SystemRandom().shuffle(l)
         self._key_a: Dict[int, int] = dict(enumerate(l))
 
         # Creates key b record
         self._key_b: List[int] = list(range(256))
-        for _ in range(iterations):
-            SystemRandom().shuffle(self._key_b)
+        SystemRandom().shuffle(self._key_b)
 
     @property
     def key_a(self) -> bytes:
