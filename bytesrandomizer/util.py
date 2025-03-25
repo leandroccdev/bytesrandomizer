@@ -3,7 +3,6 @@ from math import log2
 from typing import Any, Callable, Iterator, List, Tuple, Union
 from time import perf_counter
 
-
 def calculate_entropy(data: bytes) -> float:
     '''Calculate the entropy of byte sequence using the Shannon formula.
 
