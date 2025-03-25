@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bytesrandomizer"
+authors = [
+    { name = "Federico Leandro Cañellas", email = "federico.leandro.c@gmail.com" }
+]
+description = "Randomization for byte sequences."
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.0.1"
+license = { file = "LICENSE" }
