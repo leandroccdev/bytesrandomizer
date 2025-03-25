@@ -7,7 +7,7 @@ name = "bytesrandomizer"
 authors = [
     { name = "Federico Leandro Cañellas", email = "federico.leandro.c@gmail.com" }
 ]
-description = "Randomization for byte sequences."
+description = "Handy randomization for byte sequences."
 readme = "README.md"
 requires-python = ">=3.10"
 version = "0.0.1"
