@@ -1,6 +1,9 @@
 class ExceedsMemoryError(Exception): ...
 
 
+class InvalidKeyError(Exception): ...
+
+
 class ReverseCallExpected(Exception): ...
 
 

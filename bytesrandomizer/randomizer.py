@@ -3,11 +3,27 @@ from .util import ListEndlessIterator, format_bytes
 from concurrent.futures import Future, ThreadPoolExecutor, ProcessPoolExecutor
 from multiprocessing import cpu_count
 from secrets import SystemRandom
-from typing import Dict, Iterator, List, Optional, NoReturn, Tuple, Union
+from struct import pack, unpack
+from typing import (
+        Dict,
+        Iterator,
+        List,
+        Optional,
+        NewType,
+        NoReturn,
+        Tuple,
+        TypeAlias,
+        Union
+    )
 import logging
 
 # Setup logger
 logger = logging.getLogger(__name__)
+
+# Custom types
+Key = NewType("Key", Tuple[bytes, bytes])
+Keys = NewType("Keys", List[Key])
+Executor_Pool: TypeAlias = Union[ProcessPoolExecutor, ThreadPoolExecutor]
 
 class Log:
     '''Provides an internal logger instance.'''
@@ -19,7 +35,7 @@ class Log:
 
 
 class BinKeyApplier:
-    '''Applies randomization key into a bytes sequences.'''
+    '''Applies randomization key into a byte sequences.'''
 
     def __init__(self) -> None:
         '''Initialize the instance.
@@ -48,12 +64,12 @@ class BinKeyApplier:
         return bytes(self._key_b)
 
     def apply(self, data: bytes) -> bytes:
-        '''Randomizes the bytes sequence `data`.
+        '''Randomizes the byte sequence `data`.
 
         Args:
-            data (bytes): the bytes sequence to be randomized.
+            data (bytes): the byte sequence to be randomized.
 
-        Returns: The randomized bytes sequence.
+        Returns: The randomized byte sequence.
         '''
         r_data: List[int] = []
         for b in data:
@@ -75,7 +91,7 @@ class BinKeyApplier:
 
 
 class BinKeyExtractor:
-    '''Recovers the original bytes sequence from a randomized one.'''
+    '''Recovers the original byte sequence from a randomized one.'''
 
     def __init__(self, key_a: bytes, key_b: bytes) -> None:
         '''Initialize the instance.
@@ -93,13 +109,13 @@ class BinKeyExtractor:
         self._key_b = list(key_b)
 
     def extract(self, data: bytes) -> bytes:
-        '''Recovers the original bytes sequence from a randomized one.
+        '''Recovers the original byte sequence from a randomized one.
 
         Args:
             data (bytes): The randomized byte sequence used to recover the
             original one.
 
-        Returns: The original bytes sequence.
+        Returns: The original byte sequence.
         '''
         r_data: List[int] = []
         for b in data:
@@ -108,7 +124,7 @@ class BinKeyExtractor:
         return bytes(r_data)
 
     def extract_in_place(self, data: bytearray) -> None:
-        '''Recovers the original bytes sequence from a randomized one.
+        '''Recovers the original byte sequence from a randomized one.
 
         This version modifies the `data` bytearray in-place, avoiding the
         creation of new bytearrays or byte sequences.
@@ -146,7 +162,7 @@ class Randomizer(Log):
 
     Attributes:
         - CORES (int): The number of logical cores in the CPU.
-        - MAX_SIZE (int): The maximum size of the bytes sequence randomizer
+        - MAX_SIZE (int): The maximum size of the byte sequence randomizer
         handles.
         - WORKERS (int): Number of worker for the ThreadPoolExecutor
     '''
@@ -158,7 +174,7 @@ class Randomizer(Log):
         '''Initializes the instance.
 
         Raises:
-            ExceedsMaximumSizeError: When data bytes sequence size is greater
+            ExceedsMaximumSizeError: When data byte sequence size is greater
             than Randomizer.MAX_SIZE. (The limit can be adjusted).
         '''
         Log.__init__(self)
@@ -186,7 +202,7 @@ class Randomizer(Log):
         '''Validates the maximum data size allowed by Randomizer.MAX_SIZE.
 
         Args:
-            data (bytes): The bytes sequence to be validated.
+            data (bytes): The byte sequence to be validated.
         Raises:
             - ExceedsMemoryError: When Randomizer.MAX_SIZE is exceeded.
         '''
@@ -199,8 +215,8 @@ class Randomizer(Log):
             raise ExceedsMemoryError(err)
 
     def __apply_with_executor(self, data: bytes, block_size: int,
-        executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
-        '''Randomizes a bytes sequence using a executor pool.
+        executor: Executor_Pool) -> bytes:
+        '''Randomizes a byte sequence using a executor pool.
 
         Args:
             - data (bytes): The sequence of bytes to be randomized.
@@ -209,7 +225,7 @@ class Randomizer(Log):
             - executor (Union[ThreadPoolExecutor, ProcessPoolExecutor]): The
             executor to use in the process.
 
-        Returns: A randomized bytes sequence.
+        Returns: A randomized byte sequence.
         '''
         # Process in blocks of block_size
         tasks: List[Future] = []
@@ -236,9 +252,9 @@ class Randomizer(Log):
         return b"".join([t.result() for t in tasks])
 
     @property
-    def keys(self) -> List[Tuple[bytes, bytes]]:
+    def keys(self) -> Keys:
         '''List of handlers keys.'''
-        return [(h.key_a, h.key_b) for h in self._handlers]
+        return Keys([Key((h.key_a, h.key_b)) for h in self._handlers])
 
     def apply(self, data: bytes) -> bytes:
         '''Randomizes a byte sequence synchronously as one block.
@@ -250,7 +266,7 @@ class Randomizer(Log):
             - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
             - ResetRequiredError: When the instance is expecting a reset.
 
-        Returns: A randomized bytes sequence.
+        Returns: A randomized byte sequence.
         '''
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
@@ -260,7 +276,7 @@ class Randomizer(Log):
         return self.__new_handler().apply(data)
 
     def apply_tp(self, data: bytes, block_size: int) -> bytes:
-        '''Randomizes a bytes sequence using a ThreadPool.
+        '''Randomizes a byte sequence using a ThreadPool.
 
         The number of  ThreadPool workers is defined by `Randomizer.WORKERS`.
 
@@ -273,7 +289,7 @@ class Randomizer(Log):
             - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
             - ResetRequiredError: When the instance is expecting a reset.
 
-        Returns: A randomized bytes sequence.
+        Returns: A randomized byte sequence.
         '''
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
@@ -288,7 +304,7 @@ class Randomizer(Log):
             ThreadPoolExecutor(max_workers=Randomizer.WORKERS))
 
     def apply_pp(self, data: bytes, block_size: int) -> bytes:
-        '''Randomizes a bytes sequence using a ProcessPool.
+        '''Randomizes a byte sequence using a ProcessPool.
 
         This is usually faster than `apply` and `apply_tp` alternatives.
         The number of workers is defined by `Randomizer.CORES` (taken from
@@ -303,7 +319,7 @@ class Randomizer(Log):
             - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
             - ResetRequiredError: When the instance is expecting a reset.
 
-        Returns: A randomized bytes sequence.
+        Returns: A randomized byte sequence.
         '''
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
@@ -325,23 +341,23 @@ class Randomizer(Log):
 
 
 class Extractor(Log):
-    '''Extracts the original bytes sequence from the randomized one.
+    '''Extracts the original byte sequence from the randomized one.
 
     Attributes:
         - CORES (int): The number of logical cores in the CPU.
         - ONE_BLOCK: Used for 'block_size' argument when you want to process
-        the complete bytes sequence in one single block of data.
+        the complete byte sequence in one single block of data.
         - WORKERS (int): Number of worker for the ThreadPoolExecutor.
     '''
     CORES = cpu_count()
     ONE_BLOCK = -1
     WORKERS = 5
 
-    def __init__(self, keys: List[Tuple[bytes, bytes]]) -> None:
+    def __init__(self, keys: Keys) -> None:
         '''Initializes the instance.
 
         Args:
-            keys (List[Tuple[bytes, bytes]]): A list of handlers keys.
+            keys (Keys): A list of handlers keys.
 
         Raises:
             Exception: When keys is a empty list.
@@ -354,7 +370,7 @@ class Extractor(Log):
         self._set_handler_keys(keys)
 
     def __extract_with_executor(self, data: bytes, block_size: int,
-        executor: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> bytes:
+        executor: Executor_Pool) -> bytes:
         '''Extracts the original sequence from randomized one using a executor.
 
         Args:
@@ -364,7 +380,7 @@ class Extractor(Log):
             - executor (Union[ThreadPoolExecutor, ProcessPoolExecutor]): The
             executor to use in the process.
 
-        Returns: The original bytes sequence.
+        Returns: The original byte sequence.
         '''
         tasks: List[Future] = []
         s_block_size: str = format_bytes(block_size)
@@ -390,11 +406,11 @@ class Extractor(Log):
         self._log.debug("Waiting for tasks completion...")
         return b"".join([t.result() for t in tasks])
 
-    def _set_handler_keys(self, keys: List[Tuple[bytes, bytes]]) -> None:
+    def _set_handler_keys(self, keys: Keys) -> None:
         '''Creates a new list of handlers from `keys`.
 
         Args:
-            keys (List[Tuple[bytes, bytes]]): A list of handlers keys.
+            keys (Keys): A list of handlers keys.
 
         Raises:
             Exception: When keys is a empty list.
@@ -414,7 +430,7 @@ class Extractor(Log):
             data (bytes): The randomized byte sequence used to recover
             the original one.
 
-        Returns: The original bytes sequence.
+        Returns: The original byte sequence.
         '''
         return self._handlers[0].extract(data)
 
@@ -428,7 +444,7 @@ class Extractor(Log):
             - data (bytes): The randomized byte sequence used to recover
             the original one.
 
-        Returns: The original bytes sequence.
+        Returns: The original byte sequence.
         '''
         # Checks block_size
         if block_size <= 0:
@@ -449,7 +465,7 @@ class Extractor(Log):
             - data (bytes): The randomized byte sequence used to recover
             the original one.
 
-        Returns: The original bytes sequence.
+        Returns: The original byte sequence.
         '''
         # Checks block_size
         if block_size <= 0:
@@ -462,3 +478,114 @@ class Extractor(Log):
     keys.__doc__ = "Sets the handlers keys."
 
 
+class KeyExporter(Log):
+    '''Exports the `Randomizer` keys to a byte secuence.
+
+    Attributes:
+        MARK (bytes): Binary seal designed to recognize a binary key.
+    '''
+    MARK: bytes = b"BK"
+
+    def __init__(self, randomizer: Randomizer) -> None:
+        '''Initializes the KeyExporter instance.
+
+        Raises:
+            Exception: When the randomizer instance has an empty keys list.
+        '''
+        Log.__init__(self)
+        # Randomizer has an empty keys list
+        if not randomizer.keys:
+            raise Exception("Empty keys list was given!")
+
+        self._keys: Keys = randomizer.keys
+
+    def export_keys(self) -> bytes:
+        '''Exports the Randomizer keys into a byte sequence.
+
+        Returns: The keys used for `Randomizer` instance as single byte sequence.
+        '''
+        self._log.debug("Exporting keys...")
+        keys: List[bytes] = []
+
+        self._log.debug("Packing keys list...")
+        # Converts self._keys into single byte sequence
+        # k: a tuple of two key records (key_a, key_b)
+        fmt: str = "<" + "".join(["256s256s" for k in self._keys])
+        keys: List[bytes] = []
+        for a,b in self._keys:
+            keys.append(a)
+            keys.append(b)
+        # Debug: To print the length of items at keys list
+        # print([len(e) for e in keys])
+        # Debug: To print the format for pack function
+        # print(fmt)
+        content: bytes = pack(fmt, *keys)
+
+        # Adds a header to the data to enable future reading
+        # Header structure:
+        # [header length]\x00[header]\x00[content]
+        header_data: bytes = f"{len(fmt)}\x00{fmt}\x00".encode("utf-8")
+        fmt_header = f"<{len(header_data)}s"
+        header: bytes = pack(fmt_header, header_data)
+
+        # Joins header and content
+        return KeyExporter.MARK + b"\x00" + header + content
+
+
+class KeyImporter(Log):
+    '''Imports a `Extractor` keys from a byte sequence.
+
+    Attributes:
+        SEPARATOR (bytes): Binary separator.
+    '''
+    SEPARATOR: bytes = b"\x00"
+
+    def __init__(self) -> None:
+        '''Initialize the instance.'''
+        Log.__init__(self)
+
+    def is_valid(self, data: bytes) -> bool:
+        '''Verifies if the given key is a valid one.
+
+        Args:
+            data (bytes): The key as a byte sequence.
+
+        Returns: True when data is a valid key. False otherwise.
+        '''
+        return data.split(KeyImporter.SEPARATOR)[0] == KeyExporter.MARK
+
+    def import_keys(self, data: bytes) -> Union[Keys, NoReturn]:
+        '''Imports the keys used for `Extractor` instance from a byte sequence.
+
+        Raises:
+            - InvalidKeyError: When the byte sequence read is wrong or can't be
+            read.
+
+        Returns: A `keys` list.
+        '''
+        if not self.is_valid(data):
+            err: str = "The given key is invalid!"
+            self._log.error(err)
+            raise InvalidKeyError(err)
+
+        try:
+            self._log.debug('Importing the keys...')
+            # Avoid MARK
+            data = data[3:]
+            header_len_b: bytes = data.split(KeyImporter.SEPARATOR)[0]
+            header_len: int = int(header_len_b.decode("utf-8"))
+            # Move to header format
+            data = data[len(header_len_b) + 1:]
+            header_fmt: str = data[:header_len].decode("UTF-8")
+            # Move to data section
+            data = data[len(header_fmt) + 1:]
+
+            keys: Keys = [] # type: ignore
+            key_data: Tuple[bytes] = unpack(header_fmt, data)
+            for i in range(0, len(key_data), 2):
+                key: Key = Key((key_data[i], key_data[i + 1]))
+                keys.append(key)
+            return keys
+        except Exception as e:
+            self._log.error(e)
+            raise InvalidKeyError("Unable to read the key header!")
