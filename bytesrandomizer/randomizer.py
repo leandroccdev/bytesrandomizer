@@ -192,6 +192,18 @@ class Randomizer(Log):
         if self.__is_reset_needed:
             raise ResetRequiredError("Reset is required!")
 
+    def __check_empty_data(self, data) -> Optional[NoReturn]:
+        '''Check if the byte sequence given is empty.
+
+        Args:
+            - data (bytes): The sequence of bytes to be checked.
+
+        Raises:
+            - EmptyStreamError: When the bytes sequence is empty.
+        '''
+        if not data:
+            raise EmptyStreamError("Bytes sequence can't be empty!")
+
     def __new_handler(self) -> BinKeyApplier:
         '''Adds new handler to internal list.'''
         bkah: BinKeyApplier = BinKeyApplier()
@@ -268,6 +280,7 @@ class Randomizer(Log):
 
         Returns: A randomized byte sequence.
         '''
+        self.__check_empty_data(data)
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
