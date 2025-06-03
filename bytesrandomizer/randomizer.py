@@ -275,7 +275,8 @@ class Randomizer(Log):
             - data (bytes): The sequence of bytes to be randomized.
 
         Raises:
-            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - EmptyStreamError: When data is an empty bytes sequence.
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded.
             - ResetRequiredError: When the instance is expecting a reset.
 
         Returns: A randomized byte sequence.
@@ -299,11 +300,13 @@ class Randomizer(Log):
             same BinKey before generates new one.
 
         Raises:
-            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - EmptyStreamError: When data is an empty bytes sequence.
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded.
             - ResetRequiredError: When the instance is expecting a reset.
 
         Returns: A randomized byte sequence.
         '''
+        self.__check_empty_data(data)
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
@@ -329,11 +332,13 @@ class Randomizer(Log):
             same BinKey before generates new one.
 
         Raises:
-            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded
+            - EmptyStreamError: When data is an empty bytes sequence.
+            - ExceedsMemoryErro: When Randomizer.MAX_SIZE is exceeded.
             - ResetRequiredError: When the instance is expecting a reset.
 
         Returns: A randomized byte sequence.
         '''
+        self.__check_empty_data(data)
         self.__check_reset_needed()
         self.__validate_max_data_size(data)
         self.__is_reset_needed = True
