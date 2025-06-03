@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 from unittest import (
         TestCase,
@@ -7,6 +8,12 @@ from unittest import (
     )
 from os import urandom
 from bytesrandomizer import *
+
+def setUpModule() -> None:
+    logging.getLogger("bytesrandomizer").setLevel(logging.CRITICAL)
+
+def tearDownModule() -> None:
+    logging.getLogger("bytesrandomizer").setLevel(logging.ERROR)
 
 # Size of data in bytes
 DATA_LENGTH = 100
