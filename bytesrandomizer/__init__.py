@@ -24,7 +24,9 @@ from .randomizer import (
     )
 from .exceptions import (
         EmptyStreamError,
-        ExceedsMemoryError
+        ExceedsMemoryError,
+        OversizedBlockError,
+        ResetRequiredError
     )
 __all__ = [
         "BinKeyApplier",
@@ -35,5 +37,7 @@ __all__ = [
         "KeyExporter",
         "KeyImporter",
         "EmptyStreamError",
-        "ExceedsMemoryError"
+        "ExceedsMemoryError",
+        "OversizedBlockError",
+        "ResetRequiredError"
     ]

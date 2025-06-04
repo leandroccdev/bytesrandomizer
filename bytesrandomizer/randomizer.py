@@ -182,6 +182,22 @@ class Randomizer(Log):
         # Flag: indicates when this instance requires a reset
         self.__is_reset_needed: bool = False
 
+    def __check_block_size_oversize(self, block_size: int, data_length: int) \
+        -> Optional[NoReturn]:
+        '''Checks the size of the block_size against data length.
+
+        Exceptions:
+            - OversizedBlockError: When block_size is greater than data length.
+        '''
+        if data_length < block_size:
+            err: str = f"block_size can't be greater than {data_length}!"
+            raise OversizedBlockError(err)
+
+    def __check_min_block_size(self, block_size: int) -> Optional[NoReturn]:
+        # Checks block_size
+        if block_size <= 0:
+            raise Exception("'block_size' must be a positive integer!")
+
     def __check_reset_needed(self) -> None:
         '''Check if this instance requires a reset.
 
@@ -306,14 +322,12 @@ class Randomizer(Log):
 
         Returns: A randomized byte sequence.
         '''
-        self.__check_empty_data(data)
         self.__check_reset_needed()
+        self.__check_empty_data(data)
+        self.__check_min_block_size(block_size)
         self.__validate_max_data_size(data)
+        self.__check_block_size_oversize(block_size, len(data))
         self.__is_reset_needed = True
-
-        # Checks block_size
-        if block_size <= 0:
-            raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
         return self.__apply_with_executor(data, block_size,
@@ -338,14 +352,12 @@ class Randomizer(Log):
 
         Returns: A randomized byte sequence.
         '''
-        self.__check_empty_data(data)
         self.__check_reset_needed()
+        self.__check_empty_data(data)
+        self.__check_min_block_size(block_size)
         self.__validate_max_data_size(data)
+        self.__check_block_size_oversize(block_size, len(data))
         self.__is_reset_needed = True
-
-        # Checks block_size
-        if block_size <= 0:
-            raise Exception("'block_size' must be a positive integer!")
 
         # Process in blocks of block_size
         return self.__apply_with_executor(data, block_size,
