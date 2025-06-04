@@ -1,6 +1,7 @@
 import logging
 from copy import deepcopy
 from unittest import (
+        skip,
         TestCase,
         TestLoader,
         TestSuite,
@@ -79,9 +80,107 @@ class TestBinKey(TestCase):
         del randomized
         del extracted
 
+
+class TestRandomizer(TestCase):
+    def setUp(self) -> None:
+        self._randomizer: Randomizer = Randomizer()
+
+    def tearDown(self) -> None:
+        # del self._extractor
+        del self._randomizer
+
+    def test_apply(self) -> None:
+        '''Test randomization/extraction without threads/processes.'''
+        global DATA_LENGTH
+        data: bytes = urandom(DATA_LENGTH)
+        randomized: bytes = self._randomizer.apply(data)
+        self.assertGreater(len(randomized), 0)
+
+        self._extractor: Extractor = Extractor(self._randomizer.keys)
+        extracted: bytes = self._extractor.extract(randomized)
+
+        self.assertEqual(data, extracted)
+
+    def test_no_data(self) -> None:
+        '''Randomization test of an empty bytes sequence.'''
+        global DATA_LENGTH
+        data: bytes = b""
+        with self.assertRaises(EmptyStreamError):
+            self._randomizer.apply(data)
+        data = b""
+        with self.assertRaises(EmptyStreamError):
+            self._randomizer.apply_tp(data, 0)
+        data = b""
+        with self.assertRaises(EmptyStreamError):
+            self._randomizer.apply_pp(data, 0)
+
+        del data
+
+    def test_max_data_size(self) -> None:
+        '''Tests Randomizer.MAX_SIZE validation at apply/apply_tp/apply_pp.'''
+        max_size: int = Randomizer.MAX_SIZE
+        Randomizer.MAX_SIZE = 10 # type: ignore
+        data: bytes = b"-" * 20
+        with self.assertRaises(ExceedsMemoryError):
+            self._randomizer.apply(data)
+            data = b"-" * 20
+        with self.assertRaises(ExceedsMemoryError):
+            self._randomizer.apply_tp(data, 1)
+            data = b"-" * 20
+        with self.assertRaises(ExceedsMemoryError):
+            self._randomizer.apply_pp(data, 1)
+        Randomizer.MAX_SIZE = max_size # type: ignore
+        del data
+
+    def test_reset_required(self) -> None:
+        '''Tests the required reset at randomization process.'''
+        global DATA_LENGTH
+        data: bytes = urandom(DATA_LENGTH)
+        with self.assertRaises(ResetRequiredError):
+            self._randomizer.apply(data)
+            self._randomizer.apply(data)
+        self._randomizer.reset()
+        data = urandom(DATA_LENGTH)
+        with self.assertRaises(ResetRequiredError):
+            self._randomizer.apply_tp(data, DATA_LENGTH)
+            self._randomizer.apply_tp(data, DATA_LENGTH)
+        self._randomizer.reset()
+        data = urandom(DATA_LENGTH)
+        with self.assertRaises(ResetRequiredError):
+            self._randomizer.apply_pp(data, DATA_LENGTH)
+            self._randomizer.apply_pp(data, DATA_LENGTH)
+        self._randomizer.reset()
+        del data
+
+    def test_apply_workers_min_block_size(self) -> None:
+        '''Tests the minimum block size for apply methods that uses workers.'''
+        global DATA_LENGTH
+        data: bytes = urandom(DATA_LENGTH)
+        expected_msg: str = "'block_size' must be a positive integer!"
+        with self.assertRaisesRegex(Exception, expected_msg):
+            self._randomizer.apply_tp(data, -1)
+        self._randomizer.reset()
+        with self.assertRaisesRegex(Exception, expected_msg):
+            self._randomizer.apply_pp(data, -1)
+        del data
+        del expected_msg
+
+    def test_apply_workers_oversize_block_size(self) -> None:
+        '''Tests block_size's oversize at apply_[tp|pp].'''
+        global DATA_LENGTH
+        data: bytes = urandom(DATA_LENGTH)
+        with self.assertRaises(OversizedBlockError):
+            self._randomizer.apply_tp(data, len(data) * 2)
+        self._randomizer.reset()
+        data = urandom(DATA_LENGTH)
+        with self.assertRaises(OversizedBlockError):
+            self._randomizer.apply_pp(data, len(data) * 2)
+        del data
+
 if __name__ == "__main__":
     loader: TestLoader = TestLoader()
     ts: TestSuite = TestSuite()
     ts.addTests(loader.loadTestsFromTestCase(TestBinKey))
+    ts.addTest(loader.loadTestsFromTestCase(TestRandomizer))
     runner = TextTestRunner(verbosity=1)
     runner.run(ts)
